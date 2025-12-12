@@ -4,7 +4,7 @@ import '../models/api_models.dart';
 import '../services/auth_service.dart';
 
 class ApiService {
-  static const String baseUrl = 'https://7cvccltb-3000.inc1.devtunnels.ms';
+  static const String baseUrl = 'https://api.adhyan.guru';
   final AuthService _authService = AuthService();
 
   // Helper method to get headers with auth token
