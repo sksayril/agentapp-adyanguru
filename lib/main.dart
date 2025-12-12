@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
-import 'screens/splash_screen.dart';
+import 'screens/login_screen.dart';
 import 'screens/dashboard_screen.dart';
 import 'screens/calendar_screen.dart';
 import 'screens/add_lead_screen.dart';
 import 'screens/profile_screen.dart';
 import 'screens/commission_screen.dart';
+import 'widgets/skeleton_loader.dart';
+import 'services/auth_service.dart';
 
 void main() {
   runApp(const MyApp());
@@ -23,7 +25,12 @@ class MyApp extends StatelessWidget {
         useMaterial3: true,
         fontFamily: 'Roboto',
       ),
-      home: const SplashWrapper(),
+      routes: {
+        '/': (context) => const SplashWrapper(),
+        '/login': (context) => const LoginScreen(),
+        '/home': (context) => const MainNavigationScreen(),
+      },
+      initialRoute: '/',
     );
   }
 }
@@ -36,20 +43,54 @@ class SplashWrapper extends StatefulWidget {
 }
 
 class _SplashWrapperState extends State<SplashWrapper> {
-  bool _showMainApp = false;
+  final AuthService _authService = AuthService();
+  bool _isLoading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _checkAuth();
+  }
+
+  Future<void> _checkAuth() async {
+    final isAuthenticated = await _authService.isAuthenticated();
+    if (mounted) {
+      setState(() {
+        _isLoading = false;
+      });
+      
+      // Navigate immediately without splash
+      if (mounted) {
+        Navigator.of(context).pushReplacementNamed(
+          isAuthenticated ? '/home' : '/login',
+        );
+      }
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
-    if (_showMainApp) {
-      return const MainNavigationScreen();
+    if (_isLoading) {
+      return const Scaffold(
+        body: Center(
+          child: SkeletonLoader(
+            width: 50,
+            height: 50,
+            borderRadius: BorderRadius.all(Radius.circular(25)),
+          ),
+        ),
+      );
     }
 
-    return SplashScreen(
-      onAnimationComplete: () {
-        setState(() {
-          _showMainApp = true;
-        });
-      },
+    // This should not be reached, but just in case
+    return const Scaffold(
+      body: Center(
+        child: SkeletonLoader(
+          width: 50,
+          height: 50,
+          borderRadius: BorderRadius.all(Radius.circular(25)),
+        ),
+      ),
     );
   }
 }
@@ -71,8 +112,6 @@ class _MainNavigationScreenState extends State<MainNavigationScreen>
 
   final List<Widget> _screens = [
     const DashboardScreen(),
-    const CalendarScreen(),
-    const AddLeadScreen(),
     const ProfileScreen(),
     const CommissionScreen(),
   ];
@@ -82,7 +121,7 @@ class _MainNavigationScreenState extends State<MainNavigationScreen>
     super.initState();
     // Initialize animation controllers for each icon
     _iconControllers = List.generate(
-      5,
+      3,
       (index) => AnimationController(
         vsync: this,
         duration: const Duration(milliseconds: 300),
@@ -149,10 +188,13 @@ class _MainNavigationScreenState extends State<MainNavigationScreen>
       ),
       bottomNavigationBar: SafeArea(
         top: false,
-        child: CustomBottomNavigationBar(
-          currentIndex: _currentIndex,
-          onTap: _onItemTapped,
-          iconAnimations: _iconAnimations,
+        child: Padding(
+          padding: const EdgeInsets.only(bottom: 8.0),
+          child: CustomBottomNavigationBar(
+            currentIndex: _currentIndex,
+            onTap: _onItemTapped,
+            iconAnimations: _iconAnimations,
+          ),
         ),
       ),
     );
@@ -204,11 +246,16 @@ class CustomBottomNavigationBar extends StatelessWidget {
   Widget build(BuildContext context) {
     final screenWidth = MediaQuery.of(context).size.width;
     final bottomPadding = MediaQuery.of(context).padding.bottom;
-    final navBarHeight = 70.0 + bottomPadding;
+    final navBarHeight = 80.0 + bottomPadding + 10.0; // Increased height with extra padding
     
     return Container(
       height: navBarHeight,
-      padding: EdgeInsets.only(bottom: bottomPadding),
+      padding: EdgeInsets.only(
+        top: 10.0,
+        bottom: bottomPadding + 10.0, // Extra bottom padding
+        left: 8.0,
+        right: 8.0,
+      ),
       decoration: BoxDecoration(
         color: Colors.black,
         borderRadius: const BorderRadius.only(
@@ -223,28 +270,13 @@ class CustomBottomNavigationBar extends StatelessWidget {
           ),
         ],
       ),
-      child: Stack(
-        clipBehavior: Clip.none,
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceAround,
+        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 8.0),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceAround,
-              crossAxisAlignment: CrossAxisAlignment.center,
-              children: [
-                _buildNavItem(Icons.home, 0, 'Home', screenWidth),
-                _buildNavItem(Icons.calendar_today, 1, 'Calendar', screenWidth),
-                SizedBox(width: screenWidth * 0.15), // Space for center button
-                _buildNavItem(Icons.people, 3, 'Profile', screenWidth),
-                _buildNavItem(Icons.currency_rupee, 4, 'Commission', screenWidth),
-              ],
-            ),
-          ),
-          Positioned(
-            left: screenWidth / 2 - 30,
-            top: -25,
-            child: _buildCenterButton(),
-          ),
+          _buildNavItem(Icons.home, 0, 'Home', screenWidth),
+          _buildNavItem(Icons.people, 1, 'Profile', screenWidth),
+          _buildNavItem(Icons.currency_rupee, 2, 'Commission', screenWidth),
         ],
       ),
     );
@@ -316,52 +348,4 @@ class CustomBottomNavigationBar extends StatelessWidget {
     );
   }
 
-  Widget _buildCenterButton() {
-    final isSelected = currentIndex == 2;
-    final animation = iconAnimations != null && 2 < iconAnimations!.length
-        ? iconAnimations![2]
-        : null;
-    
-    return GestureDetector(
-      onTap: () => onTap(2),
-      child: AnimatedBuilder(
-        animation: animation ?? const AlwaysStoppedAnimation(1.0),
-        builder: (context, child) {
-          return Transform.scale(
-            scale: animation?.value ?? 1.0,
-            child: AnimatedContainer(
-              duration: const Duration(milliseconds: 300),
-              curve: Curves.easeInOut,
-              width: 60,
-              height: 60,
-              decoration: BoxDecoration(
-                color: isSelected ? Colors.white : Colors.black,
-                shape: BoxShape.circle,
-                border: Border.all(
-                  color: Colors.white,
-                  width: 3,
-                ),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withOpacity(0.3),
-                    blurRadius: isSelected ? 15 : 10,
-                    offset: Offset(0, isSelected ? 8 : 5),
-                  ),
-                ],
-              ),
-              child: AnimatedRotation(
-                duration: const Duration(milliseconds: 300),
-                turns: isSelected ? 0.125 : 0.0,
-                child: Icon(
-                  Icons.add,
-                  color: isSelected ? Colors.black : Colors.white,
-                  size: 28,
-                ),
-              ),
-            ),
-          );
-        },
-      ),
-    );
-  }
 }

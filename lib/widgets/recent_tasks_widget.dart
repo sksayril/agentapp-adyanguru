@@ -1,16 +1,56 @@
 import 'package:flutter/material.dart';
+import '../models/api_models.dart';
 
 class RecentTasksWidget extends StatelessWidget {
-  const RecentTasksWidget({super.key});
+  final List<Commission>? commissions;
+  final List<Student>? students;
+  
+  const RecentTasksWidget({
+    super.key,
+    this.commissions,
+    this.students,
+  });
+
+  List<Map<String, dynamic>> get tasks {
+    final List<Map<String, dynamic>> taskList = [];
+    
+    // Add recent commissions
+    if (commissions != null && commissions!.isNotEmpty) {
+      for (var commission in commissions!.take(3)) {
+        taskList.add({
+          'title': 'Commission: ${commission.student?.name ?? "Student"}',
+          'progress': commission.status == 'paid' ? 1.0 : 0.5,
+          'color': commission.status == 'paid' ? Colors.green : Colors.orange,
+          'amount': commission.amount,
+        });
+      }
+    }
+    
+    // Add recent students
+    if (students != null && students!.isNotEmpty) {
+      for (var student in students!.take(2)) {
+        taskList.add({
+          'title': 'New Student: ${student.name ?? "Unknown"}',
+          'progress': 1.0,
+          'color': Colors.blue,
+        });
+      }
+    }
+    
+    // If no data, show placeholder
+    if (taskList.isEmpty) {
+      taskList.add({
+        'title': 'No recent activity',
+        'progress': 0.0,
+        'color': Colors.grey,
+      });
+    }
+    
+    return taskList;
+  }
 
   @override
   Widget build(BuildContext context) {
-    final tasks = [
-      {'title': 'Follow up with Lead #108', 'progress': 0.75, 'color': Colors.blue},
-      {'title': 'Complete documentation', 'progress': 0.50, 'color': Colors.green},
-      {'title': 'Review pending applications', 'progress': 0.30, 'color': Colors.orange},
-      {'title': 'Update client database', 'progress': 0.90, 'color': Colors.purple},
-    ];
 
     return Container(
       margin: const EdgeInsets.only(top: 20),
@@ -31,7 +71,7 @@ class RecentTasksWidget extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           const Text(
-            'Recent Tasks',
+            'Recent Activity',
             style: TextStyle(
               fontSize: 18,
               fontWeight: FontWeight.bold,
@@ -43,13 +83,14 @@ class RecentTasksWidget extends StatelessWidget {
                 task['title'] as String,
                 task['progress'] as double,
                 task['color'] as Color,
+                task['amount'] as double?,
               )),
         ],
       ),
     );
   }
 
-  Widget _buildTaskItem(String title, double progress, Color color) {
+  Widget _buildTaskItem(String title, double progress, Color color, double? amount) {
     return Container(
       margin: const EdgeInsets.only(bottom: 20),
       child: Column(
@@ -68,14 +109,24 @@ class RecentTasksWidget extends StatelessWidget {
                   ),
                 ),
               ),
-              Text(
-                '${(progress * 100).toInt()}%',
-                style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.bold,
-                  color: color,
+              if (amount != null)
+                Text(
+                  '₹${amount.toStringAsFixed(0)}',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.bold,
+                    color: color,
+                  ),
+                )
+              else
+                Text(
+                  progress == 1.0 ? 'Complete' : '${(progress * 100).toInt()}%',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.bold,
+                    color: color,
+                  ),
                 ),
-              ),
             ],
           ),
           const SizedBox(height: 8),

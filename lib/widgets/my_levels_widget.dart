@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
+import '../models/api_models.dart';
 
 class MyLevelsWidget extends StatelessWidget {
-  const MyLevelsWidget({super.key});
+  final AgentProfile? profile;
+  
+  const MyLevelsWidget({super.key, this.profile});
 
   @override
   Widget build(BuildContext context) {
@@ -33,33 +36,15 @@ class MyLevelsWidget extends StatelessWidget {
           ),
           const SizedBox(height: 20),
           _buildLevelItem(
-            'Bronze Agent',
-            'Complete 50 leads',
-            Icons.workspace_premium,
-            Colors.brown,
-            0.4,
-            20,
-            50,
-          ),
-          const SizedBox(height: 15),
-          _buildLevelItem(
-            'Silver Agent',
-            'Complete 100 leads',
-            Icons.workspace_premium,
-            Colors.grey,
-            0.0,
-            0,
-            100,
-          ),
-          const SizedBox(height: 15),
-          _buildLevelItem(
-            'Gold Agent',
-            'Complete 200 leads',
-            Icons.workspace_premium,
-            Colors.amber,
-            0.0,
-            0,
-            200,
+            'Target Progress',
+            'Achieved vs Assigned',
+            Icons.track_changes,
+            Colors.blue,
+            profile != null && profile!.assignedTarget != null && profile!.assignedTarget! > 0
+                ? (profile!.achievedTarget ?? 0) / profile!.assignedTarget!
+                : 0.0,
+            profile?.achievedTarget ?? 0,
+            profile?.assignedTarget ?? 0,
           ),
         ],
       ),

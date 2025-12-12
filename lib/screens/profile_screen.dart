@@ -2,6 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
+import '../widgets/skeleton_loader.dart';
+import '../services/api_service.dart';
+import '../services/auth_service.dart';
+import '../models/api_models.dart';
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
@@ -16,8 +20,13 @@ class _ProfileScreenState extends State<ProfileScreen>
   late Animation<double> _fadeAnimation;
   late Animation<Offset> _slideAnimation;
 
-  final String referralCode = 'AG12345';
-  final String referralUrl = 'https://adhyanguru.app/ref/AG12345';
+  final ApiService _apiService = ApiService();
+  final AuthService _authService = AuthService();
+  
+  AgentProfile? _profile;
+  AgentCodeData? _agentCode;
+  bool _isLoading = true;
+  String? _error;
 
   @override
   void initState() {
@@ -43,7 +52,34 @@ class _ProfileScreenState extends State<ProfileScreen>
       curve: Curves.easeOut,
     ));
 
-    _animationController.forward();
+    _loadProfileData();
+  }
+
+  Future<void> _loadProfileData() async {
+    setState(() {
+      _isLoading = true;
+      _error = null;
+    });
+
+    try {
+      final results = await Future.wait([
+        _apiService.getProfile(),
+        _apiService.getMyCode(),
+      ]);
+
+      setState(() {
+        _profile = results[0] as AgentProfile;
+        _agentCode = (results[1] as AgentCodeResponse).data;
+        _isLoading = false;
+      });
+
+      _animationController.forward();
+    } catch (e) {
+      setState(() {
+        _error = e.toString().replaceAll('Exception: ', '');
+        _isLoading = false;
+      });
+    }
   }
 
   @override
@@ -51,6 +87,9 @@ class _ProfileScreenState extends State<ProfileScreen>
     _animationController.dispose();
     super.dispose();
   }
+
+  String get referralCode => _agentCode?.agentCode ?? _profile?.agentCode ?? 'N/A';
+  String get referralUrl => _agentCode?.shareUrl ?? 'https://adhyanguru.app/ref/$referralCode';
 
   Future<void> _copyToClipboard(String text) async {
     await Clipboard.setData(ClipboardData(text: text));
@@ -116,8 +155,83 @@ class _ProfileScreenState extends State<ProfileScreen>
     await Share.share(message);
   }
 
+  Future<void> _handleLogout() async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Logout'),
+        content: const Text('Are you sure you want to logout?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.red,
+            ),
+            child: const Text('Logout'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm == true) {
+      try {
+        await _apiService.logout();
+        if (mounted) {
+          Navigator.of(context).pushNamedAndRemoveUntil('/login', (route) => false);
+        }
+      } catch (e) {
+        // Even if logout fails, clear local auth
+        await _authService.clearAuth();
+        if (mounted) {
+          Navigator.of(context).pushNamedAndRemoveUntil('/login', (route) => false);
+        }
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
+    if (_isLoading) {
+      return const ProfileSkeleton();
+    }
+
+    if (_error != null) {
+      return Scaffold(
+        backgroundColor: Colors.grey[50],
+        appBar: AppBar(
+          title: const Text(
+            'Profile',
+            style: TextStyle(fontWeight: FontWeight.bold),
+          ),
+          backgroundColor: Colors.white,
+          elevation: 0,
+        ),
+        body: Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(Icons.error_outline, size: 64, color: Colors.red[300]),
+              const SizedBox(height: 16),
+              Text(
+                _error!,
+                style: TextStyle(color: Colors.grey[600]),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 24),
+              ElevatedButton(
+                onPressed: _loadProfileData,
+                child: const Text('Retry'),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
     return Scaffold(
       backgroundColor: Colors.grey[50],
       appBar: AppBar(
@@ -152,8 +266,8 @@ class _ProfileScreenState extends State<ProfileScreen>
                   _buildProfileItem(Icons.settings, 'Settings'),
                   _buildProfileItem(Icons.notifications, 'Notifications'),
                   _buildProfileItem(Icons.help, 'Help & Support'),
-                  _buildProfileItem(Icons.logout, 'Logout', isLogout: true),
-                  SizedBox(height: MediaQuery.of(context).padding.bottom + 100),
+                  _buildProfileItem(Icons.logout, 'Logout', isLogout: true, onTap: _handleLogout),
+                  SizedBox(height: MediaQuery.of(context).padding.bottom + 120),
                 ],
               ),
             ),
@@ -197,17 +311,22 @@ class _ProfileScreenState extends State<ProfileScreen>
                 ),
               ],
             ),
-            child: ClipOval(
-              child: Image.network(
-                'https://i.pravatar.cc/150?img=12',
-                fit: BoxFit.cover,
-              ),
-            ),
+            child: _profile?.image != null && _profile!.image!.isNotEmpty
+                ? ClipOval(
+                    child: Image.network(
+                      _profile!.image!,
+                      fit: BoxFit.cover,
+                      errorBuilder: (context, error, stackTrace) {
+                        return Icon(Icons.person, size: 50, color: Colors.white);
+                      },
+                    ),
+                  )
+                : Icon(Icons.person, size: 50, color: Colors.white),
           ),
           const SizedBox(height: 20),
-          const Text(
-            'Hard Raviya',
-            style: TextStyle(
+          Text(
+            _profile?.name ?? 'Agent',
+            style: const TextStyle(
               fontSize: 28,
               fontWeight: FontWeight.bold,
               color: Colors.white,
@@ -485,7 +604,7 @@ class _ProfileScreenState extends State<ProfileScreen>
     );
   }
 
-  Widget _buildProfileItem(IconData icon, String title, {bool isLogout = false}) {
+  Widget _buildProfileItem(IconData icon, String title, {bool isLogout = false, VoidCallback? onTap}) {
     return Container(
       margin: const EdgeInsets.only(bottom: 15),
       decoration: BoxDecoration(
@@ -523,7 +642,7 @@ class _ProfileScreenState extends State<ProfileScreen>
           size: 16,
           color: Colors.grey[400],
         ),
-        onTap: () {},
+        onTap: onTap ?? () {},
       ),
     );
   }

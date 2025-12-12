@@ -1,4 +1,7 @@
 import 'package:flutter/material.dart';
+import '../widgets/skeleton_loader.dart';
+import '../services/api_service.dart';
+import '../models/api_models.dart';
 
 class CommissionScreen extends StatefulWidget {
   const CommissionScreen({super.key});
@@ -13,47 +16,13 @@ class _CommissionScreenState extends State<CommissionScreen>
   late Animation<double> _fadeAnimation;
   late Animation<Offset> _slideAnimation;
 
-  final double walletBalance = 125000.0;
-  final double totalCommission = 345678.0;
-
-  // Sample withdrawal requests
-  final List<WithdrawalRequest> withdrawalHistory = [
-    WithdrawalRequest(
-      id: 'WR001',
-      amount: 50000,
-      date: '2024-01-20',
-      status: RequestStatus.completed,
-      method: 'Bank Transfer',
-    ),
-    WithdrawalRequest(
-      id: 'WR002',
-      amount: 30000,
-      date: '2024-01-15',
-      status: RequestStatus.completed,
-      method: 'UPI',
-    ),
-    WithdrawalRequest(
-      id: 'WR003',
-      amount: 25000,
-      date: '2024-01-10',
-      status: RequestStatus.pending,
-      method: 'Bank Transfer',
-    ),
-    WithdrawalRequest(
-      id: 'WR004',
-      amount: 40000,
-      date: '2024-01-05',
-      status: RequestStatus.completed,
-      method: 'UPI',
-    ),
-    WithdrawalRequest(
-      id: 'WR005',
-      amount: 20000,
-      date: '2023-12-28',
-      status: RequestStatus.rejected,
-      method: 'Bank Transfer',
-    ),
-  ];
+  final ApiService _apiService = ApiService();
+  
+  WalletDetails? _walletDetails;
+  CommissionsResponse? _commissions;
+  WalletTransactionsResponse? _transactions;
+  bool _isLoading = true;
+  String? _error;
 
   @override
   void initState() {
@@ -79,8 +48,49 @@ class _CommissionScreenState extends State<CommissionScreen>
       curve: Curves.easeOut,
     ));
 
-    _animationController.forward();
+    _loadCommissionData();
   }
+
+  Future<void> _loadCommissionData() async {
+    setState(() {
+      _isLoading = true;
+      _error = null;
+    });
+
+    try {
+      final results = await Future.wait([
+        _apiService.getWalletDetails(),
+        _apiService.getMyCommissions(limit: 10),
+        _apiService.getWalletTransactions(limit: 10),
+      ]);
+
+      setState(() {
+        _walletDetails = results[0] as WalletDetails;
+        _commissions = results[1] as CommissionsResponse;
+        _transactions = results[2] as WalletTransactionsResponse;
+        _isLoading = false;
+      });
+
+      _animationController.forward();
+    } catch (e) {
+      setState(() {
+        _error = e.toString().replaceAll('Exception: ', '');
+        _isLoading = false;
+      });
+    }
+  }
+
+  double get walletBalance => _walletDetails?.balance ?? 0.0;
+  double get totalCommission => _walletDetails?.totalEarned ?? 0.0;
+  double get availableBalance => _walletDetails?.availableBalance ?? 0.0;
+  double get pendingWithdrawal => _walletDetails?.pendingWithdrawal ?? 0.0;
+
+  // Sample withdrawal requests - in real app, this would come from API
+  List<WithdrawalRequest> get withdrawalHistory => [
+    // This would come from a withdrawal API endpoint
+    // For now, showing sample data
+  ];
+
 
   @override
   void dispose() {
@@ -118,7 +128,7 @@ class _CommissionScreenState extends State<CommissionScreen>
             ),
             const SizedBox(height: 15),
             Text(
-              'Available Balance: ₹${walletBalance.toStringAsFixed(0)}',
+              'Available Balance: ₹${availableBalance.toStringAsFixed(0)}',
               style: TextStyle(
                 fontSize: 14,
                 color: Colors.grey[600],
@@ -135,7 +145,7 @@ class _CommissionScreenState extends State<CommissionScreen>
             onPressed: () {
               if (amountController.text.isNotEmpty) {
                 final amount = double.tryParse(amountController.text);
-                if (amount != null && amount > 0 && amount <= walletBalance) {
+                if (amount != null && amount > 0 && amount <= availableBalance) {
                   Navigator.pop(context);
                   ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(
@@ -168,6 +178,43 @@ class _CommissionScreenState extends State<CommissionScreen>
 
   @override
   Widget build(BuildContext context) {
+    if (_isLoading) {
+      return const CommissionSkeleton();
+    }
+
+    if (_error != null) {
+      return Scaffold(
+        backgroundColor: Colors.grey[50],
+        appBar: AppBar(
+          title: const Text(
+            'Commission',
+            style: TextStyle(fontWeight: FontWeight.bold),
+          ),
+          backgroundColor: Colors.white,
+          elevation: 0,
+        ),
+        body: Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(Icons.error_outline, size: 64, color: Colors.red[300]),
+              const SizedBox(height: 16),
+              Text(
+                _error!,
+                style: TextStyle(color: Colors.grey[600]),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 24),
+              ElevatedButton(
+                onPressed: _loadCommissionData,
+                child: const Text('Retry'),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
     return Scaffold(
       backgroundColor: Colors.grey[50],
       appBar: AppBar(
@@ -178,11 +225,13 @@ class _CommissionScreenState extends State<CommissionScreen>
         backgroundColor: Colors.white,
         elevation: 0,
       ),
-      body: FadeTransition(
+      body: RefreshIndicator(
+        onRefresh: _loadCommissionData,
+        child: FadeTransition(
         opacity: _fadeAnimation,
-        child: SlideTransition(
-          position: _slideAnimation,
-          child: SingleChildScrollView(
+          child: SlideTransition(
+            position: _slideAnimation,
+            child: SingleChildScrollView(
             child: Padding(
               padding: const EdgeInsets.all(20.0),
               child: Column(
@@ -200,22 +249,46 @@ class _CommissionScreenState extends State<CommissionScreen>
                   // Recent Transactions
                   _buildSectionHeader('Recent Transactions'),
                   const SizedBox(height: 15),
-                  _buildTransactionItem('Lead #108', '₹15,000', '2024-01-15'),
-                  _buildTransactionItem('Lead #107', '₹12,500', '2024-01-14'),
-                  _buildTransactionItem('Lead #106', '₹18,000', '2024-01-13'),
+                  if (_transactions?.data != null && _transactions!.data!.isNotEmpty)
+                    ..._transactions!.data!.take(5).map((transaction) => _buildTransactionItem(
+                      transaction.category ?? 'Transaction',
+                      '₹${transaction.amount?.toStringAsFixed(0) ?? '0'}',
+                      transaction.createdAt?.substring(0, 10) ?? 'N/A',
+                      transaction.type == 'credit',
+                    ))
+                  else
+                    Padding(
+                      padding: const EdgeInsets.all(20.0),
+                      child: Text(
+                        'No transactions yet',
+                        style: TextStyle(color: Colors.grey[600]),
+                        textAlign: TextAlign.center,
+                      ),
+                    ),
                   const SizedBox(height: 30),
-                  // Withdrawal Request History
-                  _buildSectionHeader('My Request History'),
+                  // Recent Commissions
+                  _buildSectionHeader('Recent Commissions'),
                   const SizedBox(height: 15),
-                  ...withdrawalHistory.map((request) => _buildWithdrawalHistoryItem(request)),
-                  SizedBox(height: MediaQuery.of(context).padding.bottom + 100),
+                  if (_commissions?.data?.items != null && _commissions!.data!.items!.isNotEmpty)
+                    ..._commissions!.data!.items!.take(5).map((commission) => _buildCommissionItem(commission))
+                  else
+                    Padding(
+                      padding: const EdgeInsets.all(20.0),
+                      child: Text(
+                        'No commissions yet',
+                        style: TextStyle(color: Colors.grey[600]),
+                        textAlign: TextAlign.center,
+                      ),
+                    ),
+                  SizedBox(height: MediaQuery.of(context).padding.bottom + 120),
                 ],
               ),
             ),
           ),
         ),
       ),
-    );
+    ),
+      );
   }
 
   Widget _buildTotalCommissionCard() {
@@ -389,7 +462,7 @@ class _CommissionScreenState extends State<CommissionScreen>
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      '₹${walletBalance.toStringAsFixed(0)}',
+                      '₹${availableBalance.toStringAsFixed(0)}',
                       style: TextStyle(
                         fontSize: 16,
                         fontWeight: FontWeight.bold,
@@ -410,7 +483,7 @@ class _CommissionScreenState extends State<CommissionScreen>
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      '₹${(totalCommission - walletBalance).toStringAsFixed(0)}',
+                      '₹${pendingWithdrawal.toStringAsFixed(0)}',
                       style: TextStyle(
                         fontSize: 16,
                         fontWeight: FontWeight.bold,
@@ -534,7 +607,7 @@ class _CommissionScreenState extends State<CommissionScreen>
     );
   }
 
-  Widget _buildTransactionItem(String title, String amount, String date) {
+  Widget _buildTransactionItem(String title, String amount, String date, bool isCredit) {
     return Container(
       margin: const EdgeInsets.only(bottom: 15),
       padding: const EdgeInsets.all(20),
@@ -574,11 +647,11 @@ class _CommissionScreenState extends State<CommissionScreen>
             ],
           ),
           Text(
-            amount,
-            style: const TextStyle(
+            '${isCredit ? '+' : '-'}$amount',
+            style: TextStyle(
               fontSize: 18,
               fontWeight: FontWeight.bold,
-              color: Colors.green,
+              color: isCredit ? Colors.green : Colors.red,
             ),
           ),
         ],
@@ -737,6 +810,161 @@ class _CommissionScreenState extends State<CommissionScreen>
                   const SizedBox(height: 4),
                   Text(
                     request.date,
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w500,
+                      color: Colors.grey[700],
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildCommissionItem(Commission commission) {
+    Color statusColor;
+    IconData statusIcon;
+    String statusText;
+
+    switch (commission.status) {
+      case 'paid':
+        statusColor = Colors.green;
+        statusIcon = Icons.check_circle;
+        statusText = 'Paid';
+        break;
+      case 'pending':
+        statusColor = Colors.orange;
+        statusIcon = Icons.pending;
+        statusText = 'Pending';
+        break;
+      case 'cancelled':
+        statusColor = Colors.red;
+        statusIcon = Icons.cancel;
+        statusText = 'Cancelled';
+        break;
+      default:
+        statusColor = Colors.grey;
+        statusIcon = Icons.help;
+        statusText = 'Unknown';
+    }
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 15),
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(15),
+        border: Border.all(
+          color: statusColor.withOpacity(0.3),
+          width: 1,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.05),
+            blurRadius: 10,
+            offset: const Offset(0, 5),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      commission.student?.name ?? 'Student',
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.black87,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      commission.student?.email ?? '',
+                      style: TextStyle(
+                        fontSize: 13,
+                        color: Colors.grey[600],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                decoration: BoxDecoration(
+                  color: statusColor.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      statusIcon,
+                      color: statusColor,
+                      size: 14,
+                    ),
+                    const SizedBox(width: 4),
+                    Text(
+                      statusText,
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                        color: statusColor,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 15),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Amount',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: Colors.grey[600],
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    '₹${commission.amount?.toStringAsFixed(0) ?? '0'}',
+                    style: const TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.black87,
+                    ),
+                  ),
+                ],
+              ),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  Text(
+                    'Date',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: Colors.grey[600],
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    commission.createdAt?.substring(0, 10) ?? 'N/A',
                     style: TextStyle(
                       fontSize: 14,
                       fontWeight: FontWeight.w500,
